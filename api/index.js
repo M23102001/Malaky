@@ -5,10 +5,16 @@
  * Vercel has no such convention, so this function adapts Vercel's (req, res)
  * signature to the Worker's Request/Response signature and supplies `env`.
  *
- * Required environment variables (Project Settings -> Environment Variables):
- *   CLOUDFLARE_ACCOUNT_ID     - Cloudflare account id
- *   CLOUDFLARE_D1_DATABASE_ID - D1 database UUID
- *   CLOUDFLARE_API_TOKEN      - token with D1 Read + D1 Write
+ * The database backend is chosen with MALAKY_DB_BACKEND:
+ *   sqlite (default) - local SQLite file, path from MALAKY_DB_PATH
+ *   d1               - Cloudflare D1 over its HTTP API
+ *
+ * Environment variables:
+ *   MALAKY_DB_BACKEND         - "sqlite" (default) or "d1"
+ *   MALAKY_DB_PATH            - SQLite file path (default: /tmp/malaky.db)
+ *   CLOUDFLARE_ACCOUNT_ID     - D1 only: Cloudflare account id
+ *   CLOUDFLARE_D1_DATABASE_ID - D1 only: D1 database UUID
+ *   CLOUDFLARE_API_TOKEN      - D1 only: token with D1 Read + D1 Write
  *   BOOTSTRAP_KEY             - first-run admin bootstrap key (optional)
  *   SESSION_SECRET            - session signing secret (recommended)
  *
@@ -19,6 +25,7 @@
 
 import worker from '../malaky.js';
 import { createD1Rest } from '../lib/d1-rest.js';
+import { createD1Local } from '../lib/d1-local.js';
 
 // Vercel consumes the request stream when the body parser is on; the Worker
 // needs the raw stream to build its own Request, so opt out.
@@ -26,14 +33,28 @@ export const config = { api: { bodyParser: false } };
 
 const SKIP_REQUEST_HEADERS = new Set(['host', 'connection', 'content-length', 'transfer-encoding', 'keep-alive', 'upgrade']);
 
-function buildEnv() {
-  return {
-    DB: createD1Rest({
+let cachedDb = null;
+
+function createDb() {
+  if ((process.env.MALAKY_DB_BACKEND || 'sqlite').toLowerCase() === 'd1') {
+    return createD1Rest({
       accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
       databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
       apiToken: process.env.CLOUDFLARE_API_TOKEN,
       apiBase: process.env.CLOUDFLARE_API_BASE,
-    }),
+    });
+  }
+  return createD1Local({ path: process.env.MALAKY_DB_PATH || '/tmp/malaky.db' });
+}
+
+function getDb() {
+  if (!cachedDb) cachedDb = createDb();
+  return cachedDb;
+}
+
+function buildEnv() {
+  return {
+    DB: getDb(),
     BOOTSTRAP_KEY: process.env.BOOTSTRAP_KEY,
     SESSION_SECRET: process.env.SESSION_SECRET,
   };
