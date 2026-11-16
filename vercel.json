@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index?__oh_path=/$1" }
+  ],
+  "functions": {
+    "api/index.js": { "maxDuration": 60 }
+  }
+}
